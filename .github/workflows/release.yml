@@ -22,7 +22,7 @@ jobs:
           flutter-version: ${{ env.flutter-version }}
           cache: true
 
-      - name: Get Version
+      - name: Get Version from Pubspec
         id: get_version
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
@@ -30,37 +30,43 @@ jobs:
 
       - name: Build APK
         env:
-          # Pass secrets as environment variables to avoid the YAML 'if' error
           KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PW: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
+          # Ensure directories exist
+          mkdir -p android/app
+
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "Secrets found! Building Signed Release APK..."
-            
-            # Decode keystore
+            echo "Secrets found! Setting up production signing..."
             echo "$KEYSTORE_B64" | tr -d '\n ' | base64 --decode > android/app/upload-keystore.jks
             
-            # Create key.properties
             cat <<EOF > android/key.properties
-            storeFile=upload-keystore.jks
-            storePassword=$KEYSTORE_PW
-            keyPassword=$KEYSTORE_PW
-            keyAlias=upload
-          EOF
-            
+storeFile=upload-keystore.jks
+storePassword=$KEYSTORE_PW
+keyPassword=$KEYSTORE_PW
+keyAlias=upload
+EOF
             flutter build apk --release --split-per-abi
           else
-            echo "No secrets found. Building Debug APK instead..."
+            echo "No secrets found. Creating dummy key.properties to satisfy Gradle..."
+            
+            # This creates a dummy file so build.gradle.kts line 44 doesn't see 'null'
+            cat <<EOF > android/key.properties
+storeFile=debug.keystore
+storePassword=android
+keyPassword=android
+keyAlias=androiddebugkey
+EOF
+            echo "Building Debug APK..."
             flutter build apk --debug
           fi
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.APP_VERSION }}
           name: v${{ env.APP_VERSION }}
           generate_release_notes: true
-          # This glob finds any APKs in the output folder
           files: build/app/outputs/flutter-apk/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
