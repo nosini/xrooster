@@ -22,7 +22,7 @@ jobs:
           flutter-version: ${{ env.flutter-version }}
           cache: true
 
-      - name: Get Version from Pubspec
+      - name: Get Version
         id: get_version
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
@@ -33,35 +33,28 @@ jobs:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PW: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
-          # Ensure directories exist
           mkdir -p android/app
-
+          
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "Secrets found! Setting up production signing..."
+            echo "Secrets found! Building Signed Release..."
+            
+            # Decode keystore
             echo "$KEYSTORE_B64" | tr -d '\n ' | base64 --decode > android/app/upload-keystore.jks
             
-            cat <<EOF > android/key.properties
-storeFile=upload-keystore.jks
-storePassword=$KEYSTORE_PW
-keyPassword=$KEYSTORE_PW
-keyAlias=upload
-EOF
+            # Create key.properties using printf to avoid YAML indentation errors
+            printf "storeFile=upload-keystore.jks\nstorePassword=$KEYSTORE_PW\nkeyPassword=$KEYSTORE_PW\nkeyAlias=upload\n" > android/key.properties
+            
             flutter build apk --release --split-per-abi
           else
-            echo "No secrets found. Creating dummy key.properties to satisfy Gradle..."
+            echo "No secrets found. Creating dummy key.properties for Gradle..."
             
-            # This creates a dummy file so build.gradle.kts line 44 doesn't see 'null'
-            cat <<EOF > android/key.properties
-storeFile=debug.keystore
-storePassword=android
-keyPassword=android
-keyAlias=androiddebugkey
-EOF
-            echo "Building Debug APK..."
+            # Dummy file to prevent the 'null cannot be cast to String' error
+            printf "storeFile=debug.keystore\nstorePassword=android\nkeyPassword=android\nkeyAlias=androiddebugkey\n" > android/key.properties
+            
             flutter build apk --debug
           fi
 
-      - name: Create GitHub Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.APP_VERSION }}
